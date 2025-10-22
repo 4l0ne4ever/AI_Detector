@@ -51,6 +51,19 @@ api_providers:
       requests_per_day: 200
     timeout: 30
 
+  firework:
+    enabled: true
+    priority: 5
+    base_url: "https://api.fireworks.ai/inference/v1"
+    models:
+      primary: "accounts/fireworks/models/llama-v3p1-8b-instruct"
+      secondary: "accounts/fireworks/models/llama-v3p1-70b-instruct"
+      tertiary: "accounts/fireworks/models/mixtral-8x7b-instruct"
+    rate_limit:
+      requests_per_minute: 20
+      requests_per_day: 1000
+    timeout: 30
+
 generation_settings:
   max_attempts: 3
   temperature_range: [0.7, 1.0]
@@ -61,9 +74,10 @@ generation_settings:
 provider_balancing:
   enabled: true
   target_distribution:
-    groq: 0.50 # 50% of samples (primary)
-    cohere: 0.30 # 30% of samples (if API key available)
+    groq: 0.35 # 35% of samples (primary)
+    cohere: 0.25 # 25% of samples (if API key available)
     openrouter: 0.20 # 20% of samples (backup)
+    firework: 0.20 # 20% of samples (new provider)
   tolerance: 0.05 # Allow ±5% deviation from target
   rebalance_threshold: 0.10 # Rebalance if deviation >10%
 

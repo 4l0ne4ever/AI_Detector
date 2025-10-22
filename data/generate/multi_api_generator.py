@@ -358,6 +358,39 @@ class APIManager:
         else:
             raise requests.RequestException(f"OpenRouter API error: {response.status_code} - {response.text}")
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type((requests.RequestException, ConnectionError))
+    )
+    def _call_firework_api(self, prompt: str, model: str, temperature: float, max_tokens: int) -> str:
+        """Call Firework AI API"""
+        provider = self.providers['firework']
+        headers = {
+            'Authorization': f'Bearer {provider["api_key"]}',
+            'Content-Type': 'application/json'
+        }
+        
+        data = {
+            'model': model,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'temperature': temperature,
+            'max_tokens': max_tokens,
+            'top_p': random.uniform(0.85, 0.95)
+        }
+        
+        response = requests.post(
+            f"{provider['base_url']}/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=provider['config']['timeout']
+        )
+        
+        if response.status_code == 200:
+            return response.json()['choices'][0]['message']['content'].strip()
+        else:
+            raise requests.RequestException(f"Firework AI API error: {response.status_code} - {response.text}")
+    
     def generate_text(self, prompt: str, max_tokens: int = 500) -> GenerationResult:
         """Generate text using available provider with auto-failover"""
         temperature = random.uniform(*self.config['generation_settings']['temperature_range'])
@@ -383,6 +416,8 @@ class APIManager:
                     text = self._call_cohere_api(prompt, model, temperature, max_tokens)
                 elif provider_name == 'openrouter':
                     text = self._call_openrouter_api(prompt, model, temperature, max_tokens)
+                elif provider_name == 'firework':
+                    text = self._call_firework_api(prompt, model, temperature, max_tokens)
                 else:
                     raise ValueError(f"Unknown provider: {provider_name}")
                 

@@ -1,0 +1,166 @@
+# AI Text Generation Configuration
+# Load API keys from environment variables
+
+api_providers:
+  groq:
+    enabled: true
+    priority: 1
+    base_url: "https://api.groq.com/openai/v1"
+    models:
+      primary: "llama-3.3-70b-versatile"
+      secondary: "mixtral-8x7b-32768"
+    rate_limit:
+      requests_per_minute: 30
+      requests_per_day: 14400
+    timeout: 30
+
+  huggingface:
+    enabled: false # Disabled until API key is provided
+    priority: 2
+    base_url: "https://api-inference.huggingface.co/models"
+    models:
+      primary: "meta-llama/Llama-2-7b-chat-hf"
+      secondary: "mistralai/Mistral-7B-Instruct-v0.2"
+      tertiary: "tiiuae/falcon-7b-instruct"
+    rate_limit:
+      requests_per_minute: 20
+      requests_per_day: 1000
+    timeout: 30
+
+  cohere:
+    enabled: true
+    priority: 3
+    base_url: "https://api.cohere.ai/v1"
+    models:
+      primary: "command"
+      secondary: "command-light"
+    rate_limit:
+      requests_per_minute: 15
+      requests_per_day: 1000
+    timeout: 30
+
+  openrouter:
+    enabled: true
+    priority: 4
+    base_url: "https://openrouter.ai/api/v1"
+    models:
+      primary: "meta-llama/llama-3.1-8b-instruct:free"
+      secondary: "mistralai/mistral-7b-instruct:free"
+    rate_limit:
+      requests_per_minute: 10
+      requests_per_day: 200
+    timeout: 30
+
+generation_settings:
+  max_attempts: 3
+  temperature_range: [0.7, 1.0]
+  top_p_range: [0.85, 0.95]
+  max_tokens_multiplier: 1.5 # max_tokens = original_length * multiplier
+
+# Provider balancing settings
+provider_balancing:
+  enabled: true
+  target_distribution:
+    groq: 0.50 # 50% of samples (primary)
+    cohere: 0.30 # 30% of samples (if API key available)
+    openrouter: 0.20 # 20% of samples (backup)
+  tolerance: 0.05 # Allow ±5% deviation from target
+  rebalance_threshold: 0.10 # Rebalance if deviation >10%
+
+quality_thresholds:
+  length_tolerance: 0.2 # ±20% of original length
+  topic_consistency_threshold: 0.3 # 30% keyword overlap
+  min_generated_length: 50
+  max_generated_length: 5000
+
+# Quality control settings
+quality_control:
+  strict_mode: false # Use lenient mode for better success rate
+  required_checks:
+    ["topic_consistent", "not_empty", "no_prompt_leakage", "scientific_style"]
+  optional_checks: ["length_valid", "no_repetition"] # Allow some length variation and repetition
+  max_quality_failures: 3 # Max attempts before giving up
+
+prompt_templates:
+  template_a:
+    name: "Academic Paraphrase"
+    instruction: "Rewrite this scientific abstract using different academic language while maintaining the same topic and approximate length"
+    format: |
+      Rewrite this scientific abstract using different academic language while maintaining the same topic and approximate length ({min_length}-{max_length} characters):
+
+      Title: {title}
+      Domain: {categories}
+      Original Abstract: {text}
+
+      Rewritten Abstract:
+
+  template_b:
+    name: "Alternative Perspective"
+    instruction: "Create an alternative version of this scientific abstract from a different perspective"
+    format: |
+      Create an alternative version of this scientific abstract. Keep the same research topic and maintain similar length ({min_length}-{max_length} characters):
+
+      Title: {title}
+      Domain: {categories}
+      Original: {text}
+
+      Alternative Version:
+
+  template_c:
+    name: "Summarize and Expand"
+    instruction: "Generate a new version using different wording but the same research focus"
+    format: |
+      Generate a new version of this scientific abstract using different wording but the same research focus. Target length: {min_length}-{max_length} characters.
+
+      Title: {title}
+      Domain: {categories}
+      Reference: {text}
+
+      New Abstract:
+
+  template_d:
+    name: "Topic-Based Generation"
+    instruction: "Generate scientific abstract based on topic and domain only"
+    format: |
+      Write a scientific abstract about: {title}
+      Field: {categories}
+      Target length: approximately {target_length} words
+      Focus on: methodology, findings, and contributions
+
+  template_e:
+    name: "Keyword-Based Generation"
+    instruction: "Generate abstract incorporating key concepts"
+    format: |
+      Write an academic abstract incorporating these concepts:
+      {keywords}
+      Domain: {categories}
+      Length: {target_length} words
+      Style: technical and formal
+
+  template_f:
+    name: "Analytical Discussion"
+    instruction: "Discuss research in analytical style"
+    format: |
+      Discuss research on {title} in the field of {categories}.
+      Focus on methodologies, findings, and implications.
+      Length: approximately {target_length} words
+
+  template_g:
+    name: "Question-Answer Style"
+    instruction: "Generate abstract in Q&A format"
+    format: |
+      What are the key contributions of research on {title}?
+      Provide a technical summary focusing on methods and results.
+      Domain: {categories}
+      Length: {target_length} words
+
+output_settings:
+  checkpoint_interval: 1000 # Save progress every N samples
+  log_level: "INFO"
+  progress_display: true
+  save_failed_cases: true
+
+retry_settings:
+  max_retries: 3
+  backoff_factor: 2
+  max_wait_time: 60

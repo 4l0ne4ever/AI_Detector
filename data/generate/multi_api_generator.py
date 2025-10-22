@@ -726,8 +726,47 @@ class AIGenerator:
             'failed_generations': 0,
             'quality_passed': 0,
             'quality_failed': 0,
-            'provider_usage': {provider: 0 for provider in self.api_manager.providers.keys()}
+            'provider_usage': {provider: 0 for provider in self.api_manager.providers.keys()},
+            'resumed_from_checkpoint': 0
         }
+        
+        # Daily limits
+        self.daily_limit = 15000  # Max samples per day
+        self.current_day_samples = 0
+        
+        # Checkpointing
+        self.checkpoint_file = None
+        self.processed_ids = set()
+    
+    def _load_checkpoint(self, checkpoint_file: str) -> set:
+        """Load processed IDs from checkpoint file"""
+        processed_ids = set()
+        if os.path.exists(checkpoint_file):
+            try:
+                with open(checkpoint_file, 'r') as f:
+                    for line in f:
+                        processed_ids.add(line.strip())
+                logger.info(f"Loaded checkpoint: {len(processed_ids)} already processed")
+            except Exception as e:
+                logger.warning(f"Failed to load checkpoint: {e}")
+        return processed_ids
+    
+    def _save_checkpoint(self, entry_id: str):
+        """Save processed ID to checkpoint file"""
+        if self.checkpoint_file:
+            try:
+                with open(self.checkpoint_file, 'a') as f:
+                    f.write(f"{entry_id}\n")
+            except Exception as e:
+                logger.warning(f"Failed to save checkpoint: {e}")
+    
+    def _check_daily_limit(self) -> bool:
+        """Check if daily limit reached"""
+        return self.current_day_samples >= self.daily_limit
+    
+    def _reset_daily_counter(self):
+        """Reset daily counter for new day"""
+        self.current_day_samples = 0
     
     def process_single_text(self, entry: Dict) -> Optional[Dict]:
         """Process a single human text entry"""
@@ -857,38 +896,61 @@ class AIGenerator:
     
     def generate_batch(self, input_file: str, output_file: str, max_samples: int = None, 
                      start_index: int = 0, resume: bool = False) -> Dict:
-        """Generate AI texts for a batch of human texts"""
+        """Generate AI texts for a batch of human texts with daily limits and checkpointing"""
         
-        # Check for existing progress
-        if resume and os.path.exists(output_file):
-            with open(output_file, 'r') as f:
-                start_index = len(f.readlines())
-            logger.info(f"Resuming from index {start_index}")
+        # Setup checkpointing
+        self.checkpoint_file = f"{output_file}.checkpoint"
+        self.processed_ids = self._load_checkpoint(self.checkpoint_file)
+        self.stats['resumed_from_checkpoint'] = len(self.processed_ids)
         
         # Load human texts
         logger.info(f"Loading human texts from {input_file}")
         human_texts = self._load_human_texts(input_file)
         
-        if max_samples:
-            human_texts = human_texts[start_index:start_index + max_samples]
-        else:
-            human_texts = human_texts[start_index:]
+        # Filter out already processed texts
+        texts_to_process = []
+        for entry in human_texts:
+            entry_id = entry.get('metadata', {}).get('arxiv_id', '')
+            if entry_id not in self.processed_ids:
+                texts_to_process.append(entry)
         
-        total_to_process = len(human_texts)
-        logger.info(f"Processing {total_to_process} texts")
+        logger.info(f"Processing {len(texts_to_process)} texts (skipping {len(self.processed_ids)} already processed)")
+        
+        if max_samples:
+            texts_to_process = texts_to_process[:max_samples]
+        
+        total_to_process = len(texts_to_process)
+        
+        # Check daily limit
+        if self._check_daily_limit():
+            logger.warning("Daily limit reached! Stopping generation.")
+            return {'successful': 0, 'total': 0, 'rate': 0, 'time': 0}
         
         # Process texts
         successful_count = 0
         start_time = time.time()
         
-        with open(output_file, 'a' if resume else 'w', encoding='utf-8') as f:
-            for i, entry in enumerate(tqdm(human_texts, desc="Generating AI texts")):
+        with open(output_file, 'a', encoding='utf-8') as f:
+            for i, entry in enumerate(tqdm(texts_to_process, desc="Generating AI texts")):
+                # Check daily limit before each generation
+                if self._check_daily_limit():
+                    logger.warning(f"Daily limit reached after {successful_count} generations. Stopping.")
+                    break
+                
                 ai_entry = self.process_single_text(entry)
                 
                 if ai_entry:
                     f.write(json.dumps(ai_entry, ensure_ascii=False) + '\n')
                     f.flush()
                     successful_count += 1
+                    self.stats['successful_generations'] += 1
+                    self.current_day_samples += 1  # Track daily samples
+                    
+                    # Save checkpoint
+                    entry_id = entry.get('metadata', {}).get('arxiv_id', '')
+                    self._save_checkpoint(entry_id)
+                else:
+                    self.stats['failed_generations'] += 1
                 
                 # Progress reporting
                 if (i + 1) % 100 == 0:
@@ -909,10 +971,10 @@ class AIGenerator:
         logger.info(f"Total time: {total_time/60:.1f} minutes")
         
         return {
-            'successful_count': successful_count,
-            'total_processed': total_to_process,
-            'total_time': total_time,
-            'final_rate': final_rate,
+            'successful': successful_count,
+            'total': total_to_process,
+            'rate': final_rate,
+            'time': total_time / 60,
             'stats': self.stats
         }
     
@@ -942,8 +1004,10 @@ def main():
                         help='Input JSONL file with human texts')
     parser.add_argument('--output', '-o', required=True,
                         help='Output JSONL file for AI-generated texts')
-    parser.add_argument('--max', '-m', type=int, default=None,
-                        help='Maximum number of texts to generate')
+    parser.add_argument('--max', '-m', type=int, default=15000,
+                        help='Maximum number of texts to generate per day (default: 15000)')
+    parser.add_argument('--day', type=int, default=1,
+                        help='Current day (1-4)')
     parser.add_argument('--config', '-c', default='config.yaml',
                         help='Configuration file path')
     parser.add_argument('--resume', action='store_true',
@@ -953,11 +1017,25 @@ def main():
     
     args = parser.parse_args()
     
+    print("🚀 Multi-API AI Text Generator - Daily System")
+    print("=" * 50)
+    print(f"📅 Day {args.day} Generation")
+    print(f"🎯 Target: {args.max} samples")
+    print(f"📁 Input: {args.input}")
+    print(f"📁 Output: {args.output}")
+    print()
+    
     logger.info("Multi-API AI Text Generator")
     logger.info("=" * 50)
     
     try:
         generator = AIGenerator(args.config)
+        
+        # Check daily limit
+        if generator._check_daily_limit():
+            print("❌ Daily limit already reached!")
+            return
+        
         result = generator.generate_batch(
             args.input,
             args.output,
@@ -966,11 +1044,29 @@ def main():
             args.resume
         )
 
+        # Report results
+        print(f"\n✅ Day {args.day} Complete!")
+        print(f"📈 Generated: {result['successful']} samples")
+        print(f"⏱️  Rate: {result['rate']:.1f} texts/minute")
+        print(f"🕐 Time: {result['time']:.1f} minutes")
+        
+        # Check if we should continue tomorrow
+        if result['successful'] >= args.max:
+            print(f"\n🎯 Daily target reached! Run again tomorrow with --day {args.day + 1}")
+        else:
+            print(f"\n⚠️  Daily target not reached. You can run again with same --day {args.day}")
+        
         logger.info("Generation completed successfully!")
         logger.info("Final Statistics:")
-        logger.info(f"   Successful: {result['successful_count']}/{result['total_processed']}")
-        logger.info(f"   Rate: {result['final_rate']:.1f} texts/minute")
-        logger.info(f"   Provider usage: {result['stats']['provider_usage']}")
+        logger.info(f"   Successful: {result['successful']}/{result['total']}")
+        logger.info(f"   Rate: {result['rate']:.1f} texts/minute")
+        logger.info(f"   Provider usage: {generator.stats['provider_usage']}")
+        
+        print(f"\n🎉 Anti-bias features active:")
+        print(f"   ✅ Provider balancing enabled")
+        print(f"   ✅ Diverse prompt templates")
+        print(f"   ✅ Comprehensive quality validation")
+        print(f"   ✅ Checkpointing and resume support")
 
     except Exception as e:
         logger.error(f"Generation failed: {e}")

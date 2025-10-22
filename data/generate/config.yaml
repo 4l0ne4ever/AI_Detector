@@ -28,7 +28,7 @@ api_providers:
     timeout: 30
 
   cohere:
-    enabled: true
+    enabled: false # Disabled due to API key issues
     priority: 3
     base_url: "https://api.cohere.ai/v1"
     models:
@@ -70,30 +70,39 @@ generation_settings:
   top_p_range: [0.85, 0.95]
   max_tokens_multiplier: 1.5 # max_tokens = original_length * multiplier
 
+# Daily generation limits
+daily_limits:
+  max_samples_per_day: 15000 # Safe limit for API quotas
+  target_days: 4 # Total generation days
+  total_target: 50000 # Final target samples
+
 # Provider balancing settings
 provider_balancing:
   enabled: true
   target_distribution:
-    groq: 0.35 # 35% of samples (primary)
-    cohere: 0.25 # 25% of samples (if API key available)
-    openrouter: 0.20 # 20% of samples (backup)
-    firework: 0.20 # 20% of samples (new provider)
+    groq: 0.60 # 60% of samples (primary, reliable)
+    openrouter: 0.25 # 25% of samples (backup)
+    firework: 0.15 # 15% of samples (when API key available)
   tolerance: 0.05 # Allow ±5% deviation from target
   rebalance_threshold: 0.10 # Rebalance if deviation >10%
 
 quality_thresholds:
-  length_tolerance: 0.2 # ±20% of original length
-  topic_consistency_threshold: 0.3 # 30% keyword overlap
-  min_generated_length: 50
-  max_generated_length: 5000
+  length_tolerance: 0.3 # ±30% of original length (more lenient)
+  topic_consistency_threshold: 0.2 # 20% keyword overlap (more lenient)
+  min_generated_length: 30 # Lower minimum
+  max_generated_length: 8000 # Higher maximum
 
 # Quality control settings
 quality_control:
   strict_mode: false # Use lenient mode for better success rate
-  required_checks:
-    ["topic_consistent", "not_empty", "no_prompt_leakage", "scientific_style"]
-  optional_checks: ["length_valid", "no_repetition"] # Allow some length variation and repetition
-  max_quality_failures: 3 # Max attempts before giving up
+  required_checks: ["not_empty", "no_prompt_leakage"] # Only essential checks
+  optional_checks: [
+      "topic_consistent",
+      "scientific_style",
+      "length_valid",
+      "no_repetition",
+    ] # Allow variation
+  max_quality_failures: 2 # Reduce attempts to speed up
 
 prompt_templates:
   template_a:

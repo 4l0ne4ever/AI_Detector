@@ -40,7 +40,7 @@ api_providers:
     timeout: 30
 
   openrouter:
-    enabled: true
+    enabled: false # Disabled due to API issues
     priority: 4
     base_url: "https://openrouter.ai/api/v1"
     models:
@@ -80,9 +80,8 @@ daily_limits:
 provider_balancing:
   enabled: true
   target_distribution:
-    groq: 0.60 # 60% of samples (primary, reliable)
-    openrouter: 0.25 # 25% of samples (backup)
-    firework: 0.15 # 15% of samples (when API key available)
+    groq: 0.70 # 70% of samples (primary, reliable)
+    firework: 0.30 # 30% of samples (when API key available)
   tolerance: 0.05 # Allow ±5% deviation from target
   rebalance_threshold: 0.10 # Rebalance if deviation >10%
 

@@ -4,7 +4,7 @@
 api_providers:
   groq:
     enabled: true
-    priority: 1
+    priority: 1 # PRIMARY: Fastest and most reliable
     base_url: "https://api.groq.com/openai/v1"
     models:
       primary: "llama-3.3-70b-versatile"
@@ -14,22 +14,34 @@ api_providers:
       requests_per_day: 14400
     timeout: 30
 
-  huggingface:
-    enabled: false # Disabled until API key is provided
-    priority: 2
-    base_url: "https://api-inference.huggingface.co/models"
+  firework:
+    enabled: true
+    priority: 2 # SECONDARY: Tested and working
+    base_url: "https://api.fireworks.ai/inference/v1"
     models:
-      primary: "meta-llama/Llama-2-7b-chat-hf"
-      secondary: "mistralai/Mistral-7B-Instruct-v0.2"
-      tertiary: "tiiuae/falcon-7b-instruct"
+      primary: "accounts/fireworks/models/llama-v3p1-8b-instruct"
+      secondary: "accounts/fireworks/models/llama-v3p1-70b-instruct"
+      tertiary: "accounts/fireworks/models/mixtral-8x7b-instruct"
     rate_limit:
       requests_per_minute: 20
       requests_per_day: 1000
     timeout: 30
 
+  openrouter:
+    enabled: true
+    priority: 3 # BACKUP: Working with Mistral model
+    base_url: "https://openrouter.ai/api/v1"
+    models:
+      primary: "mistralai/mistral-7b-instruct:free" # Updated: Tested and working
+      secondary: "meta-llama/llama-3.2-3b-instruct:free" # Alternative option
+    rate_limit:
+      requests_per_minute: 10
+      requests_per_day: 200
+    timeout: 30
+
   cohere:
-    enabled: false # Disabled due to API key issues
-    priority: 3
+    enabled: false # Disabled: Rate limit exceeded (1000 API calls/month)
+    priority: 4
     base_url: "https://api.cohere.ai/v1"
     models:
       primary: "command"
@@ -39,26 +51,14 @@ api_providers:
       requests_per_day: 1000
     timeout: 30
 
-  openrouter:
-    enabled: false # Disabled due to API issues
-    priority: 4
-    base_url: "https://openrouter.ai/api/v1"
-    models:
-      primary: "meta-llama/llama-3.1-8b-instruct:free"
-      secondary: "mistralai/mistral-7b-instruct:free"
-    rate_limit:
-      requests_per_minute: 10
-      requests_per_day: 200
-    timeout: 30
-
-  firework:
-    enabled: true
+  huggingface:
+    enabled: false # Optional: Enable if additional capacity needed
     priority: 5
-    base_url: "https://api.fireworks.ai/inference/v1"
+    base_url: "https://api-inference.huggingface.co/models"
     models:
-      primary: "accounts/fireworks/models/llama-v3p1-8b-instruct"
-      secondary: "accounts/fireworks/models/llama-v3p1-70b-instruct"
-      tertiary: "accounts/fireworks/models/mixtral-8x7b-instruct"
+      primary: "meta-llama/Llama-2-7b-chat-hf"
+      secondary: "mistralai/Mistral-7B-Instruct-v0.2"
+      tertiary: "tiiuae/falcon-7b-instruct"
     rate_limit:
       requests_per_minute: 20
       requests_per_day: 1000
@@ -72,17 +72,18 @@ generation_settings:
 
 # Daily generation limits
 daily_limits:
-  max_samples_per_day: 15000 # Safe limit for API quotas
-  target_days: 4 # Total generation days
+  max_samples_per_day: 15000 # Updated: Based on combined API quotas (Groq: 14,400 + Fireworks: 1,000 + OpenRouter: 200)
+  target_days: 4 # Total generation days (can reach 50k in ~5 days with all providers)
   total_target: 50000 # Final target samples
 
 # Provider balancing settings
 provider_balancing:
   enabled: true
   target_distribution:
-    groq: 0.70 # 70% of samples (primary, reliable)
-    firework: 0.30 # 30% of samples (when API key available)
-  tolerance: 0.05 # Allow ±5% deviation from target
+    groq: 0.70 # 70% of samples (~10,080/day) - Primary workhorse
+    firework: 0.20 # 20% of samples (~3,000/day but limited to 1,000) - Secondary support
+    openrouter: 0.10 # 10% of samples (~1,500/day but limited to 200) - Backup for diversity
+    tolerance: 0.05 # Allow ±5% deviation from target
   rebalance_threshold: 0.10 # Rebalance if deviation >10%
 
 quality_thresholds:

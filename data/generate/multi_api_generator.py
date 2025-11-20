@@ -318,7 +318,7 @@ class APIManager:
         )
         
         if response.status_code == 200:
-            result = response.json()
+            result = response.json() 
             return result.get('generations', [{}])[0].get('text', '').strip()
         else:
             raise requests.RequestException(f"Cohere API error: {response.status_code} - {response.text}")
